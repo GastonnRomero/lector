@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lector BuenosAiresTec</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#fff; --ink:#14181f; --muted:#5b6574; --line:#dde2ea;
+    --brand:#0b3d91; --brand-ink:#fff; --ok:#16794a; --warn:#a15c00; --err:#b42318;
+    --field:#fff; --chip:#eef2f8;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0f1218; --card:#171b23; --ink:#e8ebf0; --muted:#9aa4b2; --line:#2a313d;
+      --brand:#4d8cff; --brand-ink:#0b1020; --ok:#3ecf8e; --warn:#f0a63a; --err:#ff6b5e;
+      --field:#11151c; --chip:#222937; }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:var(--brand);color:var(--brand-ink);
+    padding:12px 16px;display:flex;align-items:center;gap:10px}
+  header h1{font-size:20px;margin:0;flex:1;font-weight:700;letter-spacing:.1px}
+  .pill{font-size:12px;padding:3px 9px;border-radius:99px;background:rgba(255,255,255,.18)}
+  main{max-width:880px;margin:0 auto;padding:16px;display:grid;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .card h2{font-size:14px;margin:0 0 10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  #reader{width:100%;border-radius:10px;overflow:hidden;background:#000;min-height:0}
+  #reader video{border-radius:10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid .full{grid-column:1/-1}
+  @media (max-width:560px){.grid{grid-template-columns:1fr}}
+  label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px;font-weight:500}
+  input,select,textarea{width:100%;font:inherit;font-size:16px;color:var(--ink);background:var(--field);
+    border:1px solid var(--line);border-radius:8px;padding:10px 11px}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:-1px}
+  textarea{min-height:64px;resize:vertical}
+  #codigo{font-family:ui-monospace,Consolas,monospace;font-size:20px;font-weight:600;letter-spacing:.5px}
+  button{font:inherit;font-weight:600;border-radius:9px;border:1px solid var(--line);background:var(--card);
+    color:var(--ink);padding:10px 14px;cursor:pointer;touch-action:manipulation}
+  button.primary{background:var(--brand);color:var(--brand-ink);border-color:transparent}
+  button.big{flex:1;min-width:140px;padding:13px}
+  button:disabled{opacity:.5;cursor:default}
+  .hint{font-size:13px;color:var(--muted);margin:8px 0 0}
+  .msg{font-size:13.5px;margin-top:8px;min-height:1.2em}
+  .msg.ok{color:var(--ok)} .msg.warn{color:var(--warn)} .msg.err{color:var(--err)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{background:var(--chip);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:13.5px;
+    cursor:pointer;font-weight:500;text-align:left}
+  .tablewrap{overflow-x:auto;margin:0 -14px;padding:0 14px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:620px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+  td.mono{font-family:ui-monospace,Consolas,monospace}
+  .st{font-size:12px;font-weight:600}
+  .st.ok{color:var(--ok)} .st.pend{color:var(--warn)}
+  .switch{display:flex;align-items:center;gap:8px;font-size:14px}
+  .switch input{width:auto}
+  dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);
+    width:min(520px,calc(100vw - 32px));padding:16px}
+  dialog::backdrop{background:rgba(0,0,0,.45)}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1>Lector · BuenosAiresTec</h1>
+  <span class="pill" id="estadoConexion">…</span>
+  <button id="btnConfig" aria-label="Configuración" style="background:transparent;color:inherit;border-color:rgba(255,255,255,.35);padding:6px 10px">⚙</button>
+</header>
+
+<main>
+  <!-- ESCANEO -->
+  <section class="card">
+    <h2>1 · Escanear</h2>
+    <div id="reader" class="hidden"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="big primary" id="btnCamara">📷 Escanear código</button>
+      <button class="big" id="btnFoto">🏷️ Foto de etiqueta</button>
+      <input type="file" id="fileFoto" accept="image/*" capture="environment" class="hidden">
+    </div>
+    <label class="switch" style="margin-top:10px"><input type="checkbox" id="modoRapido"> Modo rápido (guarda solo al escanear, cantidad 1)</label>
+    <p class="hint">También funciona con lectora USB/Bluetooth: hacé clic en “Código” y escaneá.</p>
+    <div id="ocrBox" class="hidden">
+      <div class="msg" id="ocrMsg"></div>
+      <div class="row" style="align-items:center;margin-top:6px">
+        <label style="margin:0">Tocar una línea para cargarla en:</label>
+        <select id="ocrDestino" style="width:auto;padding:6px 8px">
+          <option value="modelo">Modelo</option><option value="descripcion">Descripción</option>
+          <option value="marca">Marca</option><option value="serie">N° de serie</option>
+          <option value="codigo">Código</option><option value="observaciones">Observaciones</option>
+        </select>
+      </div>
+      <div class="chips" id="ocrLineas"></div>
+    </div>
+  </section>
+
+  <!-- FORMULARIO -->
+  <section class="card">
+    <h2>2 · Datos del producto</h2>
+    <form id="form" class="grid" autocomplete="off">
+      <div class="full">
+        <label for="codigo">Código</label>
+        <input id="codigo" name="codigo" inputmode="text" required placeholder="Escaneá o escribí el código">
+        <div class="msg" id="buscarMsg"></div>
+      </div>
+      <div><label for="modelo">Modelo</label><input id="modelo" name="modelo"></div>
+      <div><label for="marca">Marca</label><input id="marca" name="marca"></div>
+      <div class="full"><label for="descripcion">Descripción</label><textarea id="descripcion" name="descripcion"></textarea></div>
+      <div><label for="serie">N° de serie</label><input id="serie" name="serie"></div>
+      <div><label for="cantidad">Cantidad</label><input id="cantidad" name="cantidad" type="number" min="1" value="1" inputmode="numeric"></div>
+      <div><label for="ubicacion">Ubicación</label><input id="ubicacion" name="ubicacion" placeholder="Ej: Depósito / Estante A3"></div>
+      <div><label for="estado">Estado</label>
+        <select id="estado" name="estado">
+          <option value="">—</option><option>Nuevo</option><option>Usado</option><option>Reacondicionado</option>
+          <option>En reparación</option><option>Defectuoso</option><option>Ingreso</option><option>Egreso</option>
+        </select></div>
+      <div class="full"><label for="observaciones">Observaciones</label><input id="observaciones" name="observaciones"></div>
+      <input type="hidden" id="tipo" name="tipo">
+      <div class="full row">
+        <button type="submit" class="big primary" id="btnGuardar">Guardar en planilla</button>
+        <button type="button" class="big" id="btnLimpiar">Limpiar</button>
+      </div>
+      <div class="full msg" id="guardarMsg"></div>
+    </form>
+  </section>
+
+  <!-- TABLA -->
+  <section class="card">
+    <div class="row" style="align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h2 style="margin:0">3 · Registros</h2>
+      <div class="row">
+        <button id="btnReintentar" class="hidden">Reenviar pendientes</button>
+        <button id="btnCsv">Exportar CSV</button>
+        <button id="btnRefrescar">Actualizar</button>
+      </div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Hora</th><th>Código</th><th>Modelo</th><th>Descripción</th><th>Cant.</th><th>Ubicación</th><th>Estado</th></tr></thead>
+        <tbody id="tbody"><tr><td colspan="7" class="hint">Sin registros todavía.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlgConfig">
+  <form method="dialog" class="grid" style="grid-template-columns:1fr">
+    <h2 style="margin:0;font-size:16px">Configuración</h2>
+    <div><label for="cfgUsuario">Tu nombre (queda en la columna Usuario)</label><input id="cfgUsuario"></div>
+    <div id="cfgUrlBox"><label for="cfgUrl">URL del script (solo si la app está hosteada fuera de Google)</label>
+      <input id="cfgUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div><label for="cfgClave">Clave interna (si está configurada en el script)</label><input id="cfgClave" type="password"></div>
+    <div class="row"><button class="big primary" value="ok">Guardar</button><button class="big" value="cancel">Cancelar</button></div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k, d){ try{ const v = localStorage.getItem('bat_'+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+    set(k, v){ try{ localStorage.setItem('bat_'+k, JSON.stringify(v)); }catch(e){} }
+  };
+  const enGAS = typeof google !== 'undefined' && google.script && google.script.run;
+  let cfg = store.get('cfg', { usuario:'', url:'', clave:'' });
+  let registros = store.get('registros', []);   // [{...registro, _estado:'ok'|'pend'}]
+  let scanner = null, escaneando = false, ultimoCodigo = '', ultimoTs = 0;
+
+  // ---------- API ----------
+  function api(payload){
+    payload = Object.assign({ clave: cfg.clave }, payload);
+    if (enGAS) {
+      return new Promise((res, rej) => google.script.run
+        .withSuccessHandler(r => r && r.ok ? res(r) : rej(new Error(r && r.error || 'Error')))
+        .withFailureHandler(rej).api(payload));
+    }
+    if (!cfg.url) return Promise.reject(new Error('Falta configurar la URL del script (⚙)'));
+    return fetch(cfg.url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(payload) })
+      .then(r => r.json()).then(r => { if(!r.ok) throw new Error(r.error || 'Error'); return r; });
+  }
+
+  function setMsg(el, txt, tipo){ el.textContent = txt || ''; el.className = 'msg' + (tipo ? ' '+tipo : '') + (el.id==='guardarMsg' ? ' full' : ''); }
+
+  function estadoConexion(){
+    const p = $('estadoConexion');
+    if (enGAS) { p.textContent = 'Conectado a Sheets'; return; }
+    if (!cfg.url) { p.textContent = 'Sin configurar'; return; }
+    p.textContent = 'Conectando…';
+    api({ action:'ping' }).then(() => p.textContent = 'Conectado a Sheets').catch(() => p.textContent = 'Sin conexión');
+  }
+
+  // ---------- Escaneo con cámara ----------
+  const formatos = () => (window.Html5QrcodeSupportedFormats ? [
+    'EAN_13','EAN_8','UPC_A','UPC_E','CODE_128','CODE_39','CODE_93','CODABAR','ITF','QR_CODE','DATA_MATRIX','PDF_417'
+  ].map(f => Html5QrcodeSupportedFormats[f]).filter(v => v !== undefined) : undefined);
+
+  async function toggleCamara(){
+    if (escaneando) return pararCamara();
+    if (!window.Html5Qrcode) { setMsg($('buscarMsg'), 'No se pudo cargar el lector (¿sin internet?).', 'err'); return; }
+    $('reader').classList.remove('hidden');
+    scanner = scanner || new Html5Qrcode('reader', { formatsToSupport: formatos(), experimentalFeatures:{ useBarCodeDetectorIfSupported:true }, verbose:false });
+    try {
+      await scanner.start({ facingMode:'environment' },
+        { fps: 12, qrbox: (w, h) => ({ width: Math.min(w*0.85, 420), height: Math.min(h*0.5, 220) }), aspectRatio: 1.6 },
+        (texto, res) => onCodigo(texto, res && res.result && res.result.format && res.result.format.formatName));
+      escaneando = true; $('btnCamara').textContent = '⏹ Detener cámara';
+    } catch (e) {
+      $('reader').classList.add('hidden');
+      setMsg($('buscarMsg'), 'No se pudo abrir la cámara: ' + (e.message || e) + '. Revisá el permiso de cámara del navegador.', 'err');
+    }
+  }
+  async function pararCamara(){
+    if (scanner && escaneando) { try { await scanner.stop(); } catch(e){} }
+    escaneando = false; $('reader').classList.add('hidden'); $('btnCamara').textContent = '📷 Escanear código';
+  }
+
+  function beep(){
+    try { const c = new (window.AudioContext||window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain();
+      o.frequency.value = 1150; g.gain.value = .08; o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + .09); } catch(e){}
+    if (navigator.vibrate) navigator.vibrate(60);
+  }
+
+  function onCodigo(texto, formato){
+    texto = String(texto || '').trim(); if (!texto) return;
+    const ahora = Date.now();
+    if (texto === ultimoCodigo && ahora - ultimoTs < 2500) return; // evita lecturas repetidas
+    ultimoCodigo = texto; ultimoTs = ahora;
+    beep();
+    $('codigo').value = texto; $('tipo').value = formato || '';
+    if ($('modoRapido').checked) { guardar(); return; }
+    pararCamara();
+    buscar(texto);
+  }
+
+  // ---------- Buscar código existente ----------
+  let buscarSeq = 0;
+  function buscar(codigo){
+    codigo = (codigo || '').trim(); if (!codigo) return;
+    const seq = ++buscarSeq;
+    setMsg($('buscarMsg'), 'Buscando en la planilla…');
+    api({ action:'buscar', codigo }).then(r => {
+      if (seq !== buscarSeq) return;
+      if (!r.encontrado) { setMsg($('buscarMsg'), 'Código nuevo: completá los datos.', 'warn'); $('modelo').focus(); return; }
+      const d = r.datos;
+      ['modelo','marca','descripcion','ubicacion','estado'].forEach(k => { if (!$(k).value && d[k]) $(k).value = d[k]; });
+      setMsg($('buscarMsg'), `Ya registrado ${r.veces} ${r.veces===1?'vez':'veces'}: datos autocompletados.`, 'ok');
+    }).catch(e => { if (seq === buscarSeq) setMsg($('buscarMsg'), 'No se pudo buscar: ' + e.message, 'warn'); });
+  }
+
+  // ---------- Foto de etiqueta (código + OCR) ----------
+  async function procesarFoto(file){
+    if (!file) return;
+    await pararCamara();
+    $('ocrBox').classList.remove('hidden'); $('ocrLineas').innerHTML = '';
+    setMsg($('ocrMsg'), 'Buscando código de barras en la foto…');
+    // 1) intentar leer el código de barras de la foto
+    if (window.Html5Qrcode) {
+      try {
+        const tmp = document.createElement('div'); tmp.id = 'tmpReader'; tmp.style.display = 'none'; document.body.appendChild(tmp);
+        const s = new Html5Qrcode('tmpReader', { formatsToSupport: formatos(), experimentalFeatures:{ useBarCodeDetectorIfSupported:true }, verbose:false });
+        const r = await s.scanFileV2(file, false);
+        tmp.remove();
+        if (r && r.decodedText) { $('codigo').value = r.decodedText.trim(); $('tipo').value = r.result && r.result.format && r.result.format.formatName || ''; beep(); buscar($('codigo').value); }
+      } catch(e) { const t = $('tmpReader'); if (t) t.remove(); }
+    }
+    // 2) OCR del texto de la etiqueta
+    if (!window.Tesseract) { setMsg($('ocrMsg'), 'OCR no disponible (¿sin internet?).', 'err'); return; }
+    setMsg($('ocrMsg'), 'Leyendo el texto de la etiqueta… (la primera vez tarda unos segundos)');
+    try {
+      const img = await achicar(file, 1600);
+      const { data } = await Tesseract.recognize(img, 'spa+eng', {
+        logger: m => { if (m.status === 'recognizing text') setMsg($('ocrMsg'), 'Leyendo texto… ' + Math.round(m.progress*100) + '%'); }
+      });
+      const lineas = (data.text || '').split('\n').map(l => l.replace(/\s+/g,' ').trim()).filter(l => l.length > 1);
+      autollenarDesdeTexto(lineas);
+      $('ocrLineas').innerHTML = '';
+      lineas.forEach(l => { const b = document.createElement('button'); b.type='button'; b.className='chip'; b.textContent=l;
+        b.onclick = () => { const k = $('ocrDestino').value, el = $(k);
+          el.value = (k==='descripcion'||k==='observaciones') && el.value ? el.value + ' ' + l : l;
+          if (k==='codigo') buscar(l); };
+        $('ocrLineas').appendChild(b); });
+      setMsg($('ocrMsg'), lineas.length ? 'Texto detectado. Revisá los campos y tocá líneas para completar lo que falte.' : 'No se detectó texto legible. Probá con más luz y más cerca.', lineas.length ? 'ok' : 'warn');
+    } catch(e) { setMsg($('ocrMsg'), 'Error en OCR: ' + (e.message || e), 'err'); }
+  }
+
+  function achicar(file, max){
+    return new Promise((res, rej) => { const img = new Image(); img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src); res(c);
+    }; img.onerror = rej; img.src = URL.createObjectURL(file); });
+  }
+
+  // Detecta campos típicos de etiquetas: "Model:", "P/N", "S/N", etc.
+  function autollenarDesdeTexto(lineas){
+    const reglas = [
+      ['modelo', /^(?:model(?:o)?|mod\.?|type|tipo|p\/?n|part\s*(?:no|number|#)?)\s*[:#.\-]?\s*(.+)$/i],
+      ['serie',  /^(?:s\/?n|serial(?:\s*(?:no|number|#))?|n[°º]?\s*de\s*serie|serie)\s*[:#.\-]?\s*(.+)$/i],
+      ['marca',  /^(?:brand|marca|manufacturer|fabricante)\s*[:#.\-]?\s*(.+)$/i],
+    ];
+    lineas.forEach(l => reglas.forEach(([campo, re]) => { const m = l.match(re); if (m && !$(campo).value) $(campo).value = m[1].trim(); }));
+  }
+
+  // ---------- Guardar ----------
+  function leerForm(){
+    const f = {}; ['codigo','modelo','marca','descripcion','serie','cantidad','ubicacion','estado','observaciones','tipo'].forEach(k => f[k] = $(k).value.trim());
+    f.cantidad = Number(f.cantidad) || 1; f.usuario = cfg.usuario || '';
+    f.fecha = new Date().toISOString();
+    f.id = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
+    return f;
+  }
+
+  function guardar(){
+    const reg = leerForm();
+    if (!reg.codigo) { setMsg($('guardarMsg'), 'Falta el código.', 'err'); $('codigo').focus(); return; }
+    reg._estado = 'pend'; registros.unshift(reg); persistir(); render();
+    setMsg($('guardarMsg'), 'Guardando…');
+    enviar(reg).then(() => setMsg($('guardarMsg'), `✔ Guardado: ${reg.codigo}`, 'ok'))
+      .catch(e => setMsg($('guardarMsg'), `Quedó pendiente (${e.message}). Se reenvía con “Reenviar pendientes”.`, 'warn'));
+    limpiar(true);
+  }
+
+  function enviar(reg){
+    const { _estado, ...registro } = reg;
+    return api({ action:'guardar', registro }).then(() => { reg._estado = 'ok'; persistir(); render(); });
+  }
+
+  function reintentar(){
+    const pend = registros.filter(r => r._estado === 'pend');
+    if (!pend.length) return;
+    setMsg($('guardarMsg'), `Reenviando ${pend.length}…`);
+    pend.reduce((p, r) => p.then(() => enviar(r)), Promise.resolve())
+      .then(() => setMsg($('guardarMsg'), '✔ Pendientes enviados.', 'ok'))
+      .catch(e => setMsg($('guardarMsg'), 'Sigue sin conexión: ' + e.message, 'warn'));
+  }
+
+  function limpiar(mantenerUbicacion){
+    const ubic = $('ubicacion').value, est = $('estado').value;
+    $('form').reset(); $('cantidad').value = 1; $('tipo').value = '';
+    if (mantenerUbicacion !== false) { $('ubicacion').value = ubic; $('estado').value = est; } // suele repetirse entre escaneos
+    setMsg($('buscarMsg'), ''); $('ocrBox').classList.add('hidden'); ultimoCodigo = '';
+    if (!escaneando) $('codigo').focus();
+  }
+
+  // ---------- Tabla ----------
+  function persistir(){ store.set('registros', registros.slice(0, 500)); }
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function render(){
+    const tb = $('tbody');
+    if (!registros.length) { tb.innerHTML = '<tr><td colspan="7" class="hint">Sin registros todavía.</td></tr>'; }
+    else tb.innerHTML = registros.slice(0, 200).map(r => {
+      const d = new Date(r.fecha), hora = isNaN(d) ? '' : d.toLocaleString('es-AR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      const st = r._estado === 'pend' ? '<span class="st pend">● pendiente</span>' : '<span class="st ok">✔</span>';
+      return `<tr><td>${esc(hora)}<br>${st}</td><td class="mono">${esc(r.codigo)}</td><td>${esc(r.modelo)}</td><td>${esc(r.descripcion)}</td><td>${esc(r.cantidad)}</td><td>${esc(r.ubicacion)}</td><td>${esc(r.estado)}</td></tr>`;
+    }).join('');
+    $('btnReintentar').classList.toggle('hidden', !registros.some(r => r._estado === 'pend'));
+  }
+
+  function refrescar(){
+    api({ action:'listar', n: 100 }).then(r => {
+      const pend = registros.filter(x => x._estado === 'pend');
+      registros = pend.concat(r.filas.map(f => Object.assign(f, { _estado:'ok' })));
+      persistir(); render();
+    }).catch(e => setMsg($('guardarMsg'), 'No se pudo actualizar: ' + e.message, 'warn'));
+  }
+
+  function exportarCsv(){
+    const cols = ['fecha','codigo','tipo','modelo','marca','descripcion','serie','cantidad','ubicacion','estado','observaciones','usuario'];
+    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const csv = '﻿' + cols.join(';') + '\n' + registros.map(r => cols.map(c => q(r[c])).join(';')).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv' }));
+    a.download = 'registros-' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
+  }
+
+  // ---------- Configuración ----------
+  function abrirConfig(){
+    $('cfgUsuario').value = cfg.usuario || ''; $('cfgUrl').value = cfg.url || ''; $('cfgClave').value = cfg.clave || '';
+    $('cfgUrlBox').classList.toggle('hidden', !!enGAS);
+    $('dlgConfig').showModal();
+  }
+  $('dlgConfig').addEventListener('close', () => {
+    if ($('dlgConfig').returnValue !== 'ok') return;
+    cfg = { usuario: $('cfgUsuario').value.trim(), url: $('cfgUrl').value.trim(), clave: $('cfgClave').value };
+    store.set('cfg', cfg); estadoConexion(); refrescar();
+  });
+
+  // ---------- Eventos ----------
+  $('btnCamara').onclick = toggleCamara;
+  $('btnFoto').onclick = () => $('fileFoto').click();
+  $('fileFoto').onchange = e => { procesarFoto(e.target.files[0]); e.target.value = ''; };
+  $('form').onsubmit = e => { e.preventDefault(); guardar(); };
+  $('btnLimpiar').onclick = () => limpiar(false);
+  $('btnReintentar').onclick = reintentar;
+  $('btnRefrescar').onclick = refrescar;
+  $('btnCsv').onclick = exportarCsv;
+  $('btnConfig').onclick = abrirConfig;
+  // Lectora USB/Bluetooth: escribe el código y manda Enter
+  $('codigo').addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return; e.preventDefault();
+    const v = $('codigo').value.trim(); if (!v) return;
+    if ($('modoRapido').checked) { beep(); guardar(); } else { buscar(v); $('modelo').focus(); }
+  });
+  $('codigo').addEventListener('change', () => { if (!$('modoRapido').checked) buscar($('codigo').value); });
+  window.addEventListener('online', reintentar);
+
+  render(); estadoConexion();
+  if (enGAS || cfg.url) refrescar();
+  if (!cfg.usuario) setTimeout(abrirConfig, 300);
+})();
+</script>
+</body>
+</html>
